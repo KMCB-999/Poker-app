@@ -1,52 +1,130 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Poker App</title>
-  
-  <!-- Configuration PWA iOS / iPadOS -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Poker App">
-  <link rel="manifest" href="manifest.json">
-
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: #0d47a1;
-      color: white;
-      font-family: system-ui, -apple-system, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-    }
-    .table {
-      width: 90%;
-      max-width: 800px;
-      height: 400px;
-      background: #1b5e20;
-      border: 12px solid #5d4037;
-      border-radius: 200px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
-    }
-    h1 {
-      margin-bottom: 20px;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Poker App</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Poker App">
+<link rel="manifest" href="manifest.json">
+<style>
+* { box-sizing: border-box; }
+body {
+margin: 0;
+padding: 0;
+background: #0f172a;
+color: white;
+font-family: system-ui, -apple-system, sans-serif;
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: space-between;
+min-height: 100vh;
+user-select: none;
+}
+header {
+padding: 15px;
+font-size: 1.2rem;
+font-weight: bold;
+}
+.table {
+width: 90%;
+max-width: 900px;
+height: 380px;
+background: #15803d;
+border: 12px solid #78350f;
+border-radius: 200px;
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: space-around;
+box-shadow: inset 0 0 30px rgba(0,0,0,0.6);
+}
+.pot {
+background: rgba(0,0,0,0.4);
+padding: 8px 16px;
+border-radius: 20px;
+font-size: 1.1rem;
+font-weight: bold;
+}
+.community-cards, .hand {
+display: flex;
+gap: 10px;
+}
+.card {
+width: 50px;
+height: 75px;
+background: white;
+color: black;
+border-radius: 6px;
+display: flex;
+align-items: center;
+justify-content: center;
+font-weight: bold;
+font-size: 1.2rem;
+box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+}
+.card.red { color: #dc2626; }
+.controls {
+width: 100%;
+padding: 20px;
+background: #1e293b;
+display: flex;
+justify-content: center;
+gap: 15px;
+}
+button {
+background: #2563eb;
+color: white;
+border: none;
+padding: 12px 24px;
+font-size: 1rem;
+font-weight: bold;
+border-radius: 8px;
+}
+button.fold { background: #dc2626; }
+button.raise { background: #16a34a; }
+</style>
 </head>
 <body>
-
-  <h1>Poker App</h1>
-  <div class="table">
-    <p>Table de poker prête</p>
-  </div>
-
+<header>
+Tapis : <span id="chips">1000</span> $
+</header>
+<div class="table">
+<div class="pot">Pot : <span id="pot">0</span> $</div>
+<div class="community-cards">
+<div class="card red">A♠</div>
+<div class="card">K♥</div>
+<div class="card red">10♠</div>
+<div class="card">7♦</div>
+<div class="card red">2♣</div>
+</div>
+<div class="hand">
+<div class="card red">J♠</div>
+<div class="card">Q♥</div>
+</div>
+</div>
+<div class="controls">
+<button class="fold" onclick="playAction('Se coucher')">Se coucher</button>
+<button onclick="playAction('Check')">Check</button>
+<button class="raise" onclick="playAction('Miser 50$')">Miser 50$</button>
+</div>
+<script>
+let chips = 1000;
+let pot = 0;
+function playAction(action) {
+if(action === 'Miser 50$') {
+if(chips >= 50) {
+chips -= 50;
+pot += 50;
+document.getElementById('chips').innerText = chips;
+document.getElementById('pot').innerText = pot;
+}
+} else {
+alert("Action : " + action);
+}
+}
+</script>
 </body>
 </html>
