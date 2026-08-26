@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Poker Scoreboard</title>
-    <!-- Import de Firebase pour synchroniser les téléphones et l'iPad -->
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
     <style>
@@ -19,10 +18,9 @@
         .btn { width: 100%; max-width: 320px; padding: 14px; margin-bottom: 12px; border-radius: 12px; border: none; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; color: white; }
         .btn-primary { background: #e74c3c; }
         .btn-secondary { background: #2980b9; }
-        .btn-success { background: #27ae60; }
         .btn:active { transform: scale(0.96); }
 
-        /* Écran de Jeu */
+        /* Écran de Jeu / Table Centrale */
         #game-screen { background: radial-gradient(circle, #1b4d3e 0%, #0d231b 100%); justify-content: space-between; padding: 15px; }
         .table-header { display: flex; justify-content: space-between; width: 100%; font-size: 14px; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px; align-items: center; }
         .table-center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1; width: 100%; max-width: 400px; margin: 0 auto; }
@@ -41,15 +39,18 @@
         .btn-bet { background: #d35400; }
         .btn-next { background: #27ae60; }
         .btn-reset { background: #c0392b; }
+        
+        .host-controls { display: none; }
+        #player-controls { display: none; width: 100%; flex-direction: column; gap: 8px; }
     </style>
 </head>
 <body>
 
-    <!-- 1. MENU PRINCIPAL : CHOIX DU MODE -->
+    <!-- 1. MENU PRINCIPAL -->
     <div id="menu-screen" class="screen active">
         <h1>POKER TENT</h1>
         <div class="input-group">
-            <label>Ton Pseudo</label>
+            <label>Ton Pseudo (Si tu rejoins en Joueur)</label>
             <input type="text" id="username" placeholder="Ex: Thomas">
         </div>
         <div class="input-group">
@@ -57,16 +58,15 @@
             <input type="text" id="room-code" placeholder="Ex: 777" value="777">
         </div>
         
-        <!-- Les 2 options demandées directement dans l'app -->
-        <button class="btn btn-primary" onclick="startMode('standalone')">📱 Mode iPad (Borne Centrale)</button>
-        <button class="btn btn-secondary" onclick="startMode('network')">🌐 Mode Réseau (Téléphones connectés)</button>
+        <button class="btn btn-primary" onclick="createHostTable()">🖥️ Créer la Table (iPad / Hôte)</button>
+        <button class="btn btn-secondary" onclick="joinAsPlayer()">📱 Rejoindre (Téléphone / Joueur)</button>
     </div>
 
-    <!-- 2. TABLE DE SCORE & JETONS -->
+    <!-- 2. TABLE DE JEU -->
     <div id="game-screen" class="screen">
         <div class="table-header">
             <span id="info-room" style="font-weight: bold; color: #f1c40f;">Table #</span>
-            <span id="info-player"></span>
+            <span id="info-role" style="color: #2ecc71; font-weight: bold;"></span>
             <button onclick="backToMenu()" style="background: none; border: none; color: #e74c3c; font-weight: bold; cursor: pointer; font-size: 13px;">Quitter</button>
         </div>
 
@@ -80,69 +80,86 @@
             <div class="players-list" id="players-container"></div>
         </div>
 
-        <div class="control-panel">
-            <div class="action-row">
-                <button class="btn-bet" onclick="addChipsToPot(10)">+10 Pot</button>
-                <button class="btn-bet" onclick="addChipsToPot(50)">+50 Pot</button>
-                <button class="btn-bet" onclick="addChipsToPot(100)">+100 Pot</button>
-            </div>
+        <!-- Contrôles Hôte (iPad) -->
+        <div class="control-panel host-controls" id="host-controls-panel">
             <div class="action-row">
                 <button class="btn-next" onclick="nextPhase()">Tour Suivant</button>
-                <button class="btn-reset" onclick="resetHand()">Fin de coup</button>
+                <button class="btn-reset" onclick="resetHand()">Réinitialiser</button>
+            </div>
+        </div>
+
+        <!-- Contrôles Joueur (Téléphone) -->
+        <div class="control-panel" id="player-controls">
+            <div style="font-size: 13px; color: #f1c40f; margin-bottom: 2px;" id="my-chips-text">Mes jetons : 1000</div>
+            <div class="action-row">
+                <button class="btn-bet" onclick="addChipsToPot(10)">Miser 10</button>
+                <button class="btn-bet" onclick="addChipsToPot(50)">Miser 50</button>
+                <button class="btn-bet" onclick="addChipsToPot(100)">Miser 100</button>
             </div>
         </div>
     </div>
 
 <script>
-    // Configuration Firebase pour le mode réseau (partagé en temps réel)
     const firebaseConfig = {
         databaseURL: "https://poker-app-sync-default-rtdb.europe-west1.firebasedatabase.app/"
     };
-    // Initialisation sécurisée si connectée
     let db = null;
     try {
         firebase.initializeApp(firebaseConfig);
         db = firebase.database();
-    } catch(e) { console.log("Mode hors-ligne local actif"); }
+    } catch(e) { console.log("Firebase erreur init"); }
 
     let currentRoom = "777";
     let playerName = "";
-    let gameMode = "standalone"; // 'standalone' ou 'network'
+    let isHost = false;
     let pot = 0;
     let phaseIndex = 0;
     const phases = ["Pré-Flop", "Flop (3 cartes)", "Turn (4ème carte)", "River (Dernière carte)"];
     let players = [];
     let dbRef = null;
 
-    function startMode(mode) {
-        const nameInput = document.getElementById('username').value.trim();
+    function createHostTable() {
         const roomInput = document.getElementById('room-code').value.trim();
-
-        if(!nameInput) { alert("Entre un pseudo !"); return; }
         if(!roomInput) { alert("Entre un code de table !"); return; }
 
-        playerName = nameInput;
         currentRoom = roomInput;
-        gameMode = mode;
+        isHost = true;
+        playerName = "Hôte";
 
         document.getElementById('menu-screen').classList.remove('active');
         document.getElementById('game-screen').classList.add('active');
-        document.getElementById('info-room').innerText = "Table #" + currentRoom + (gameMode === 'network' ? " (Réseau)" : " (iPad)");
-        document.getElementById('info-player').innerText = "👤 " + playerName;
+        document.getElementById('info-room').innerText = "Table #" + currentRoom;
+        document.getElementById('info-role').innerText = "🖥️ Mode Hôte";
+        
+        document.getElementById('host-controls-panel').style.display = "flex";
+        document.getElementById('player-controls').style.display = "none";
 
-        if (gameMode === 'network' && db) {
-            setupNetworkSync();
-        } else {
-            // Mode local / iPad seul
-            players = [{ name: playerName, chips: 1000 }];
-            updateUI();
-        }
+        setupHostSync();
     }
 
-    function setupNetworkSync() {
+    function joinAsPlayer() {
+        const nameInput = document.getElementById('username').value.trim();
+        const roomInput = document.getElementById('room-code').value.trim();
+
+        if(!nameInput) { alert("Entre ton pseudo !"); return; }
+        if(!roomInput) { alert("Entre un code de table !"); return; }
+
+        playerName = nameInput;
+        isHost = false;
+
+        document.getElementById('menu-screen').classList.remove('active');
+        document.getElementById('game-screen').classList.add('active');
+        document.getElementById('info-room').innerText = "Table #" + currentRoom;
+        document.getElementById('info-role').innerText = "👤 " + playerName;
+
+        document.getElementById('host-controls-panel').style.display = "none";
+        document.getElementById('player-controls').style.display = "flex";
+
+        setupPlayerSync();
+    }
+
+    function setupHostSync() {
         dbRef = db.ref('rooms/' + currentRoom);
-        
-        // Écoute les changements en direct de la table
         dbRef.on('value', (snapshot) => {
             const data = snapshot.val();
             if (data) {
@@ -150,25 +167,41 @@
                 phaseIndex = data.phaseIndex || 0;
                 players = data.players || [];
             } else {
-                // Première initialisation de la table en réseau
-                players = [{ name: playerName, chips: 1000 }];
+                pot = 0;
+                phaseIndex = 0;
+                players = [];
                 syncToCloud();
             }
             updateUI();
         });
+    }
 
-        // S'assure que le joueur actuel est présent dans la liste réseau
-        setTimeout(() => {
-            let p = players.find(x => x.name === playerName);
-            if (!p) {
-                players.push({ name: playerName, chips: 1000 });
+    function setupPlayerSync() {
+        dbRef = db.ref('rooms/' + currentRoom);
+        dbRef.on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                pot = data.pot || 0;
+                phaseIndex = data.phaseIndex || 0;
+                players = data.players || [];
+                
+                let p = players.find(x => x.name === playerName);
+                if (!p) {
+                    players.push({ name: playerName, chips: 1000 });
+                    syncToCloud();
+                }
+            } else {
+                players = [{ name: playerName, chips: 1000 }];
+                pot = 0;
+                phaseIndex = 0;
                 syncToCloud();
             }
-        }, 500);
+            updateUI();
+        });
     }
 
     function syncToCloud() {
-        if (gameMode === 'network' && dbRef) {
+        if (dbRef) {
             dbRef.set({ pot: pot, phaseIndex: phaseIndex, players: players });
         }
     }
@@ -188,6 +221,13 @@
             html += `<div class="player-row"><span>👤 ${p.name}</span><span><strong>${p.chips}</strong> jetons</span></div>`;
         });
         document.getElementById('players-container').innerHTML = html;
+
+        if(!isHost) {
+            let me = players.find(x => x.name === playerName);
+            if(me) {
+                document.getElementById('my-chips-text').innerText = "Mes jetons : " + me.chips;
+            }
+        }
     }
 
     function addChipsToPot(amount) {
@@ -196,11 +236,7 @@
         if(p) {
             p.chips = Math.max(0, p.chips - amount);
         }
-        if (gameMode === 'network') {
-            syncToCloud();
-        } else {
-            updateUI();
-        }
+        syncToCloud();
     }
 
     function nextPhase() {
@@ -209,20 +245,14 @@
         } else {
             phaseIndex = 0;
         }
-        if (gameMode === 'network') {
-            syncToCloud();
-        } else {
-            updateUI();
-        }
+        syncToCloud();
     }
 
     function resetHand() {
         pot = 0;
         phaseIndex = 0;
-        if (gameMode === 'network') {
-            syncToCloud();
-        } else {
-            updateUI();
-        }
+        syncToCloud();
     }
-</sc
+</script>
+</body>
+</html>
