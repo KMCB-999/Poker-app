@@ -84,7 +84,7 @@
         <div class="control-panel host-controls" id="host-controls-panel">
             <div class="action-row">
                 <button class="btn-next" onclick="nextPhase()">Tour Suivant</button>
-                <button class="btn-reset" onclick="resetHand()">Réinitialiser</button>
+                <button class="btn-reset" onclick="resetHand()">Réinitialiser le Pot</button>
             </div>
         </div>
 
@@ -112,11 +112,8 @@
     let currentRoom = "777";
     let playerName = "";
     let isHost = false;
-    let pot = 0;
-    let phaseIndex = 0;
+    let roomRef = null;
     const phases = ["Pré-Flop", "Flop (3 cartes)", "Turn (4ème carte)", "River (Dernière carte)"];
-    let players = [];
-    let dbRef = null;
 
     function createHostTable() {
         const roomInput = document.getElementById('room-code').value.trim();
@@ -124,17 +121,16 @@
 
         currentRoom = roomInput;
         isHost = true;
-        playerName = "Hôte";
 
         document.getElementById('menu-screen').classList.remove('active');
         document.getElementById('game-screen').classList.add('active');
         document.getElementById('info-room').innerText = "Table #" + currentRoom;
-        document.getElementById('info-role').innerText = "🖥️ Mode Hôte";
+        document.getElementById('info-role').innerText = "🖥️ Mode Hôte (iPad)";
         
         document.getElementById('host-controls-panel').style.display = "flex";
         document.getElementById('player-controls').style.display = "none";
 
-        setupHostSync();
+        setupSync();
     }
 
     function joinAsPlayer() {
@@ -145,6 +141,7 @@
         if(!roomInput) { alert("Entre un code de table !"); return; }
 
         playerName = nameInput;
+        currentRoom = roomInput;
         isHost = false;
 
         document.getElementById('menu-screen').classList.remove('active');
@@ -155,103 +152,90 @@
         document.getElementById('host-controls-panel').style.display = "none";
         document.getElementById('player-controls').style.display = "flex";
 
-        setupPlayerSync();
+        setupSync();
+
+        // Enregistre ou initialise le joueur dans la room sans écraser les autres
+        const playerRef = db.ref('rooms/' + currentRoom + '/players/' + sanitizeKey(playerName));
+        playerRef.once('value', (snapshot) => {
+            if (!snapshot.exists()) {
+                playerRef.set({ name: playerName, chips: 1000 });
+            }
+        });
+        // Sécurité déconnexion optionnelle ou nettoyage si besoin
     }
 
-    function setupHostSync() {
-        dbRef = db.ref('rooms/' + currentRoom);
-        dbRef.on('value', (snapshot) => {
+    function sanitizeKey(str) {
+        return str.replace(/[.#$\/\[\]]/g, "_");
+    }
+
+    function setupSync() {
+        roomRef = db.ref('rooms/' + currentRoom);
+
+        // Écoute globale de la room (pot, phase, joueurs)
+        roomRef.on('value', (snapshot) => {
             const data = snapshot.val();
-            if (data) {
-                pot = data.pot || 0;
-                phaseIndex = data.phaseIndex || 0;
-                players = data.players || [];
-            } else {
-                pot = 0;
-                phaseIndex = 0;
-                players = [];
-                syncToCloud();
+            if (!data) return;
+
+            let pot = data.pot || 0;
+            let phaseIndex = data.phaseIndex || 0;
+
+            document.getElementById('pot-display').innerText = pot;
+            document.getElementById('round-name').innerText = "Phase : " + (phases[phaseIndex] || "Pré-Flop");
+
+            let playersHtml = '';
+            let myChips = 1000;
+            if (data.players) {
+                Object.keys(data.players).forEach(key => {
+                    let p = data.players[key];
+                    playersHtml += `<div class="player-row"><span>👤 ${p.name}</span><span><strong>${p.chips}</strong> jetons</span></div>`;
+                    if (!isHost && key === sanitizeKey(playerName)) {
+                        myChips = p.chips;
+                    }
+                });
             }
-            updateUI();
-        });
-    }
+            document.getElementById('players-container').innerHTML = playersHtml;
 
-    function setupPlayerSync() {
-        dbRef = db.ref('rooms/' + currentRoom);
-        dbRef.on('value', (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                pot = data.pot || 0;
-                phaseIndex = data.phaseIndex || 0;
-                players = data.players || [];
-                
-                let p = players.find(x => x.name === playerName);
-                if (!p) {
-                    players.push({ name: playerName, chips: 1000 });
-                    syncToCloud();
-                }
-            } else {
-                players = [{ name: playerName, chips: 1000 }];
-                pot = 0;
-                phaseIndex = 0;
-                syncToCloud();
+            if (!isHost) {
+                document.getElementById('my-chips-text').innerText = "Mes jetons : " + myChips;
             }
-            updateUI();
         });
-    }
-
-    function syncToCloud() {
-        if (dbRef) {
-            dbRef.set({ pot: pot, phaseIndex: phaseIndex, players: players });
-        }
-    }
-
-    function backToMenu() {
-        if (dbRef) dbRef.off();
-        document.getElementById('game-screen').classList.remove('active');
-        document.getElementById('menu-screen').classList.add('active');
-    }
-
-    function updateUI() {
-        document.getElementById('pot-display').innerText = pot;
-        document.getElementById('round-name').innerText = "Phase : " + phases[phaseIndex];
-
-        let html = '';
-        players.forEach(p => {
-            html += `<div class="player-row"><span>👤 ${p.name}</span><span><strong>${p.chips}</strong> jetons</span></div>`;
-        });
-        document.getElementById('players-container').innerHTML = html;
-
-        if(!isHost) {
-            let me = players.find(x => x.name === playerName);
-            if(me) {
-                document.getElementById('my-chips-text').innerText = "Mes jetons : " + me.chips;
-            }
-        }
     }
 
     function addChipsToPot(amount) {
-        pot += amount;
-        let p = players.find(x => x.name === playerName);
-        if(p) {
-            p.chips = Math.max(0, p.chips - amount);
-        }
-        syncToCloud();
+        if (isHost || !playerName) return;
+
+        const safeName = sanitizeKey(playerName);
+        const roomPath = db.ref('rooms/' + currentRoom);
+
+        roomPath.transaction((room) => {
+            if (room) {
+                room.pot = (room.pot || 0) + amount;
+                if (room.players && room.players[safeName]) {
+                    let currentChips = room.players[safeName].chips || 1000;
+                    room.players[safeName].chips = Math.main ? Math.max(0, currentChips - amount) : Math.max(0, currentChips - amount);
+                }
+            }
+            return room;
+        });
     }
 
     function nextPhase() {
-        if(phaseIndex < phases.length - 1) {
-            phaseIndex++;
-        } else {
-            phaseIndex = 0;
-        }
-        syncToCloud();
+        if (!isHost) return;
+        roomRef.child('phaseIndex').transaction((currentPhase) => {
+            return ((currentPhase || 0) + 1) % phases.length;
+        });
     }
 
     function resetHand() {
-        pot = 0;
-        phaseIndex = 0;
-        syncToCloud();
+        if (!isHost) return;
+        roomRef.child('pot').set(0);
+        roomRef.child('phaseIndex').set(0);
+    }
+
+    function backToMenu() {
+        if (roomRef) roomRef.off();
+        document.getElementById('game-screen').classList.remove('active');
+        document.getElementById('menu-screen').classList.add('active');
     }
 </script>
 </body>
